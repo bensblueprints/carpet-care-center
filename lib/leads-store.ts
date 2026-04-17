@@ -1,8 +1,7 @@
-import { promises as fs } from "fs";
-import path from "path";
 import { randomUUID } from "crypto";
+import { db } from "./db";
 
-export type LeadStatus = "new" | "contacted" | "booked" | "lost" | "deleted";
+export type LeadStatus = "new" | "contacted" | "booked" | "lost" | "archived" | "deleted";
 
 export type Lead = {
   id: string;
@@ -15,74 +14,116 @@ export type Lead = {
   message?: string;
   status: LeadStatus;
   notes?: string;
+  updatedAt?: string;
 };
 
-const DATA_DIR =
-  process.env.LEADS_DIR ||
-  (process.env.NODE_ENV === "production" ? "/data/leads" : path.join(process.cwd(), ".data"));
+type LeadRow = {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  service: string;
+  preferred_date: string | null;
+  message: string | null;
+  status: string;
+  notes: string | null;
+  created_at: string;
+  updated_at: string | null;
+};
 
-async function ensureDir() {
-  try {
-    await fs.mkdir(DATA_DIR, { recursive: true });
-  } catch {
-    // fall back to /tmp if /data isn't writable (non-persistent but functional)
-    const fallback = path.join("/tmp", "ccc-leads");
-    await fs.mkdir(fallback, { recursive: true });
-    return fallback;
-  }
-  return DATA_DIR;
-}
-
-export async function listLeads(): Promise<Lead[]> {
-  const dir = await ensureDir();
-  let files: string[] = [];
-  try {
-    files = await fs.readdir(dir);
-  } catch {
-    return [];
-  }
-  const leads: Lead[] = [];
-  for (const f of files) {
-    if (!f.endsWith(".json")) continue;
-    try {
-      const raw = await fs.readFile(path.join(dir, f), "utf8");
-      leads.push(JSON.parse(raw));
-    } catch {
-      // skip corrupt
-    }
-  }
-  return leads.sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
-}
-
-export async function createLead(input: Omit<Lead, "id" | "createdAt" | "status"> & { status?: LeadStatus }): Promise<Lead> {
-  const dir = await ensureDir();
-  const lead: Lead = {
-    id: randomUUID(),
-    createdAt: new Date().toISOString(),
-    status: "new",
-    ...input,
+function rowToLead(r: LeadRow): Lead {
+  return {
+    id: r.id,
+    name: r.name,
+    email: r.email,
+    phone: r.phone,
+    service: r.service,
+    date: r.preferred_date || undefined,
+    message: r.message || undefined,
+    status: (r.status as LeadStatus) || "new",
+    notes: r.notes || undefined,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at || undefined,
   };
-  await fs.writeFile(path.join(dir, `${lead.id}.json`), JSON.stringify(lead, null, 2), "utf8");
-  return lead;
 }
 
-export async function updateLead(id: string, patch: Partial<Lead>): Promise<Lead | null> {
-  const dir = await ensureDir();
-  const file = path.join(dir, `${id}.json`);
-  try {
-    const raw = await fs.readFile(file, "utf8");
-    const existing: Lead = JSON.parse(raw);
-    const next: Lead = { ...existing, ...patch, id: existing.id, createdAt: existing.createdAt };
-    await fs.writeFile(file, JSON.stringify(next, null, 2), "utf8");
-    return next;
-  } catch {
-    return null;
+export function listLeads(statusFilter?: string): Lead[] {
+  let rows: LeadRow[];
+  if (statusFilter) {
+    rows = db
+      .prepare("SELECT * FROM leads WHERE status = ? ORDER BY created_at DESC")
+      .all(statusFilter) as LeadRow[];
+  } else {
+    rows = db
+      .prepare("SELECT * FROM leads WHERE status != 'deleted' ORDER BY created_at DESC")
+      .all() as LeadRow[];
   }
+  return rows.map(rowToLead);
 }
 
-export async function softDeleteLead(id: string): Promise<boolean> {
-  const result = await updateLead(id, { status: "deleted" });
-  return !!result;
+export function createLead(input: {
+  name: string;
+  email: string;
+  phone: string;
+  service: string;
+  date?: string;
+  message?: string;
+}): Lead {
+  const id = randomUUID();
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO leads (id, name, email, phone, service, preferred_date, message, status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'new', ?)`
+  ).run(
+    id,
+    input.name,
+    input.email,
+    input.phone,
+    input.service,
+    input.date || null,
+    input.message || null,
+    now
+  );
+  const row = db.prepare("SELECT * FROM leads WHERE id = ?").get(id) as LeadRow;
+  return rowToLead(row);
+}
+
+export function updateLead(id: string, patch: Partial<Lead>): Lead | null {
+  const existing = db.prepare("SELECT * FROM leads WHERE id = ?").get(id) as LeadRow | undefined;
+  if (!existing) return null;
+  const now = new Date().toISOString();
+  db.prepare(
+    `UPDATE leads SET
+      name = COALESCE(?, name),
+      email = COALESCE(?, email),
+      phone = COALESCE(?, phone),
+      service = COALESCE(?, service),
+      preferred_date = COALESCE(?, preferred_date),
+      message = COALESCE(?, message),
+      status = COALESCE(?, status),
+      notes = COALESCE(?, notes),
+      updated_at = ?
+     WHERE id = ?`
+  ).run(
+    patch.name ?? null,
+    patch.email ?? null,
+    patch.phone ?? null,
+    patch.service ?? null,
+    patch.date ?? null,
+    patch.message ?? null,
+    patch.status ?? null,
+    patch.notes ?? null,
+    now,
+    id
+  );
+  const row = db.prepare("SELECT * FROM leads WHERE id = ?").get(id) as LeadRow;
+  return rowToLead(row);
+}
+
+export function softDeleteLead(id: string): boolean {
+  const res = db.prepare("UPDATE leads SET status = 'archived', updated_at = ? WHERE id = ?")
+    .run(new Date().toISOString(), id);
+  return res.changes > 0;
 }
 
 export function checkAdminAuth(headers: Headers): boolean {

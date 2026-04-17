@@ -21,7 +21,8 @@ Thumbs.db
 .idea/
 
 scrape/
-design-system/carpet-care-center/pages/
+design-system/
+data/
 
 next-env.d.ts
 .tsbuildinfo
