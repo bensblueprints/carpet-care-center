@@ -7,8 +7,8 @@ import { Menu, Phone, X } from "lucide-react";
 import { BUSINESS } from "@/lib/utils";
 
 const links = [
-  { href: "#services", label: "Services" },
-  { href: "#about", label: "About" },
+  { href: "/services/residential-carpet-cleaning/", label: "Services" },
+  { href: "/service-area/mission-viejo/", label: "Service Area" },
   { href: "#process", label: "Process" },
   { href: "#testimonials", label: "Reviews" },
   { href: "#contact", label: "Contact" },

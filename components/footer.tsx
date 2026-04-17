@@ -1,9 +1,10 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { ArrowUp, Mail, MapPin, Phone } from "lucide-react";
 import { BUSINESS } from "@/lib/utils";
-import { SERVICES } from "@/components/services";
+import { SERVICES as SEO_SERVICES, CITIES as SEO_CITIES } from "@/lib/seo-data";
 
 export function Footer() {
   return (
@@ -38,11 +39,11 @@ export function Footer() {
           <div>
             <h3 className="font-display text-lg text-cream">Services</h3>
             <ul className="mt-4 space-y-2 text-sm">
-              {SERVICES.map((s) => (
+              {SEO_SERVICES.map((s) => (
                 <li key={s.slug}>
-                  <a href="#services" className="hover:text-brass transition-colors">
+                  <Link href={`/services/${s.slug}/`} className="hover:text-brass transition-colors">
                     {s.title}
-                  </a>
+                  </Link>
                 </li>
               ))}
             </ul>
@@ -51,9 +52,11 @@ export function Footer() {
           <div>
             <h3 className="font-display text-lg text-cream">Service Areas</h3>
             <ul className="mt-4 space-y-2 text-sm">
-              {BUSINESS.serviceArea.map((c) => (
-                <li key={c}>
-                  <span className="hover:text-brass transition-colors">{c}, CA</span>
+              {SEO_CITIES.map((c) => (
+                <li key={c.slug}>
+                  <Link href={`/service-area/${c.slug}/`} className="hover:text-brass transition-colors">
+                    {c.name}, CA
+                  </Link>
                 </li>
               ))}
             </ul>
